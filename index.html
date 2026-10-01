@@ -5,16 +5,16 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Car Log</title>
 <link rel="manifest" href="manifest.json">
-<meta name="theme-color" content="#0f5c63">
+<meta name="theme-color" content="#000000">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-title" content="Car Log">
 <link rel="apple-touch-icon" href="icon-180.png">
 <style>
-:root{--bg:#f2f4f3;--card:#fff;--ink:#14201f;--mute:#5d6b69;--line:#d9e0de;--pri:#0f5c63;--on:#fff;--amb:#c77d00;--bad:#b3261e;
+:root{--bg:#000;--card:#131313;--ink:#f4f4f4;--mute:#a8a8a8;--line:#303030;--pri:#ffc800;--on:#000;--amb:#ffc800;--bad:#ff7a6e;color-scheme:dark;
 box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
-@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#0f1716;--card:#182322;--ink:#e7efed;--mute:#9bb0ac;--line:#2a3a38;--pri:#4fb3bb;--on:#06201f;--amb:#e8a317;--bad:#f2867f}}
-:root[data-theme="dark"]{--bg:#0f1716;--card:#182322;--ink:#e7efed;--mute:#9bb0ac;--line:#2a3a38;--pri:#4fb3bb;--on:#06201f;--amb:#e8a317;--bad:#f2867f}
+input[type=date]::-webkit-calendar-picker-indicator{opacity:1;width:24px;height:24px;cursor:pointer;background:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23ffc800' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Crect x='3' y='5' width='18' height='16' rx='2'/%3E%3Cpath d='M16 3v4M8 3v4M3 10h18'/%3E%3C/svg%3E") center/22px no-repeat}
+input[type=date]{min-height:46px}
 html{scroll-padding-top:env(safe-area-inset-top,0px)}
 *{box-sizing:border-box}
 body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.45 system-ui,-apple-system,Segoe UI,Roboto,sans-serif}
@@ -59,6 +59,7 @@ input:focus,select:focus,button:focus-visible{outline:2px solid var(--pri);outli
     <label for="date">Date</label><input id="date" type="date">
     <div id="fuelF">
       <label for="odo">Odometer (km)</label><input id="odo" type="number" inputmode="decimal" min="0">
+      <p class="k" style="margin:12px 0 0">Fill any two of litres, price and total. The third is worked out for you.</p>
       <div class="row">
         <div><label for="ltr">Litres</label><input id="ltr" type="number" inputmode="decimal" step="0.01" min="0"></div>
         <div><label for="ppl">Price per litre (₹)</label><input id="ppl" type="number" inputmode="decimal" step="0.01" min="0"></div>
@@ -115,12 +116,20 @@ function setMode(m){mode=m;$('fuelF').hidden=m!=='fuel';$('otherF').hidden=m==='
 $('tFuel').onclick=()=>setMode('fuel');$('tOther').onclick=()=>setMode('other');
 $('date').value=today();
 
-// auto-calc total / price
 const num=id=>parseFloat($(id).value);
-function calc(from){const l=num('ltr'),p=num('ppl'),t=num('tot');
-  if(from!=='tot'&&l>0&&p>0)$('tot').value=(l*p).toFixed(2);
-  else if(from==='tot'&&l>0&&t>0)$('ppl').value=(t/l).toFixed(2)}
-$('ltr').oninput=()=>calc();$('ppl').oninput=()=>calc();$('tot').oninput=()=>calc('tot');
+let touched=[];
+function onCalc(id){
+  touched=touched.filter(x=>x!==id);
+  if(!(num(id)>0))return;
+  touched.push(id);if(touched.length>2)touched.shift();
+  if(touched.length<2)return;
+  const a=num('ltr'),p=num('ppl'),t=num('tot');
+  const target=['ltr','ppl','tot'].find(x=>!touched.includes(x));
+  if(target==='tot')$('tot').value=(a*p).toFixed(2);
+  else if(target==='ltr')$('ltr').value=(t/p).toFixed(2);
+  else $('ppl').value=(t/a).toFixed(2);
+}
+['ltr','ppl','tot'].forEach(id=>$(id).oninput=()=>onCalc(id));
 
 $('save').onclick=()=>{
   const date=$('date').value;if(!date)return toast('Pick a date');
@@ -128,7 +137,7 @@ $('save').onclick=()=>{
     const odo=num('odo'),l=num('ltr'),t=num('tot');
     if(!(odo>0&&l>0&&t>0))return toast('Enter odometer, litres and total');
     data.push({id:Date.now(),type:'fuel',date,odo,litres:l,amount:t,full:$('full').checked});
-    ['odo','ltr','ppl','tot'].forEach(i=>$(i).value='');
+    ['odo','ltr','ppl','tot'].forEach(i=>$(i).value='');touched=[];
   }else{
     const a=num('amt');if(!(a>0))return toast('Enter an amount');
     data.push({id:Date.now(),type:'other',date,cat:$('cat').value,amount:a,note:$('note').value.trim()});
