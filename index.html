@@ -47,13 +47,15 @@ input:focus,select:focus,button:focus-visible{outline:2px solid var(--pri);outli
 .toast{position:fixed;left:50%;bottom:84px;transform:translateX(-50%);background:var(--ink);color:var(--bg);padding:10px 16px;border-radius:10px;opacity:0;transition:opacity .2s;pointer-events:none}
 .toast.show{opacity:1}
 [hidden]{display:none!important}
+.act{display:flex;gap:14px;justify-content:flex-end;margin-top:2px}.item>div:last-child{text-align:right}.item .ed{color:var(--pri)}.item button{padding:4px 0}.bars{height:120px}.bars span{display:block;font-size:.7rem;color:var(--ink);margin-bottom:2px;min-height:1em}.ln{fill:none;stroke:var(--pri);stroke-width:2.5;stroke-linejoin:round}.dt{fill:var(--pri)}.mt{fill:var(--mute);font-size:11px}.ins{margin:8px 0 0;padding-left:18px}.ins li{margin-bottom:6px}
 </style>
 </head>
 <body>
 <main>
 <div class="card" id="bk" hidden><b>Time for a backup</b><p class="k" id="bkMsg"></p><button class="btn" id="bkBtn" type="button">Back up now</button></div>
+<div class="seg" id="veh" style="margin-bottom:12px"><button type="button" data-v="car">Car</button><button type="button" data-v="bike">Bike</button></div>
 <section id="add">
-  <h1>Add entry</h1>
+  <h1 id="addH">Add entry</h1>
   <div class="card">
     <div class="seg"><button id="tFuel" class="on" type="button">Fuel fill-up</button><button id="tOther" type="button">Other expense</button></div>
     <label for="date">Date</label><input id="date" type="date">
@@ -74,6 +76,7 @@ input:focus,select:focus,button:focus-visible{outline:2px solid var(--pri);outli
       <label for="note">Note</label><input id="note" type="text" maxlength="80">
     </div>
     <button class="btn" id="save" type="button">Save entry</button>
+    <button class="btn alt" id="cancel" type="button" hidden>Cancel edit</button>
   </div>
 </section>
 
@@ -87,9 +90,9 @@ input:focus,select:focus,button:focus-visible{outline:2px solid var(--pri);outli
   <div id="sumBody"></div>
   <div class="card">
     <b>Backup</b>
-    <p class="k">Your data is stored on this phone only. Back up now and then (Share to Drive or WhatsApp) and you can never lose it.</p><p class="k" id="lastBk"></p>
-    <button class="btn alt" id="exp" type="button">Export CSV</button>
-    <button class="btn alt" id="impB" type="button">Import CSV</button>
+    <p class="k">Your data is stored on this phone only. Back up now and then (Share to Drive or WhatsApp) and you can never lose it.</p><p class="k" id="lastBk"></p><p class="k">Restore reads a backup file and adds back every entry for both vehicles. Restoring the same file twice never creates duplicates.</p>
+    <button class="btn alt" id="exp" type="button">Back up now (CSV)</button>
+    <button class="btn alt" id="impB" type="button">Restore from CSV</button>
     <input id="imp" type="file" accept=".csv,text/csv" hidden>
   </div>
 </section>
@@ -98,26 +101,38 @@ input:focus,select:focus,button:focus-visible{outline:2px solid var(--pri);outli
 <div class="toast" id="toast"></div>
 
 <script>
-const KEY='carlog.v1';
+const KEY='carlog.v1',BK='carlog.backup',VK='carlog.veh';
+const $=id=>document.getElementById(id);
 let data=[];
 try{data=JSON.parse(localStorage.getItem(KEY)||'[]')}catch(e){data=[]}
-const $=id=>document.getElementById(id);
+data.forEach(e=>{if(!e.veh)e.veh='car'}); // older entries belong to the car
+let cur='car';try{cur=localStorage.getItem(VK)==='bike'?'bike':'car'}catch(e){}
+let editing=null,mode='fuel',touched=[];
+const JUMP={car:1500,bike:800};
 const persist=()=>{try{const old=localStorage.getItem(KEY);if(old)localStorage.setItem(KEY+'.prev',old);localStorage.setItem(KEY,JSON.stringify(data))}catch(e){toast('Could not save on this device')}};
 if(navigator.storage&&navigator.storage.persist){navigator.storage.persist().catch(()=>{})}
-const BK='carlog.backup';
 function bkInfo(){try{return JSON.parse(localStorage.getItem(BK)||'null')||{t:0,n:0}}catch(e){return{t:0,n:0}}}
 const inr=n=>'₹'+Math.round(n).toLocaleString('en-IN');
 const today=()=>{const d=new Date();return new Date(d-d.getTimezoneOffset()*6e4).toISOString().slice(0,10)};
-function toast(m){const t=$('toast');t.textContent=m;t.classList.add('show');setTimeout(()=>t.classList.remove('show'),1800)}
+const esc=s=>String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const num=id=>parseFloat($(id).value);
+function toast(m){const t=$('toast');t.textContent=m;t.classList.add('show');setTimeout(()=>t.classList.remove('show'),2200)}
 
-let mode='fuel';
 function setMode(m){mode=m;$('fuelF').hidden=m!=='fuel';$('otherF').hidden=m==='fuel';
   $('tFuel').classList.toggle('on',m==='fuel');$('tOther').classList.toggle('on',m!=='fuel')}
 $('tFuel').onclick=()=>setMode('fuel');$('tOther').onclick=()=>setMode('other');
-$('date').value=today();
 
-const num=id=>parseFloat($(id).value);
-let touched=[];
+function resetForm(){editing=null;touched=[];
+  ['odo','ltr','ppl','tot','amt','note'].forEach(i=>$(i).value='');
+  $('date').value=today();$('save').textContent='Save entry';$('cancel').hidden=true;$('addH').textContent='Add entry'}
+$('cancel').onclick=resetForm;
+
+function setVeh(v){cur=v;try{localStorage.setItem(VK,v)}catch(e){}
+  document.querySelectorAll('#veh button').forEach(b=>b.classList.toggle('on',b.dataset.v===v));
+  resetForm();render()}
+document.querySelectorAll('#veh button').forEach(b=>b.onclick=()=>setVeh(b.dataset.v));
+
+// any two of litres / price / total fill in the third
 function onCalc(id){
   touched=touched.filter(x=>x!==id);
   if(!(num(id)>0))return;
@@ -131,35 +146,79 @@ function onCalc(id){
 }
 ['ltr','ppl','tot'].forEach(id=>$(id).oninput=()=>onCalc(id));
 
+// odometer sanity check
+function odoOk(e){
+  const others=data.filter(x=>x.type==='fuel'&&x.veh===e.veh&&x.id!==editing).sort((a,b)=>a.date.localeCompare(b.date)||a.odo-b.odo);
+  const prev=others.filter(x=>x.date<=e.date).pop(),next=others.find(x=>x.date>e.date);
+  let msg='';
+  if(prev&&e.odo<=prev.odo)msg=`Odometer ${e.odo} km is not higher than ${prev.odo} km on ${prev.date}.`;
+  else if(next&&e.odo>=next.odo)msg=`Odometer ${e.odo} km is not lower than ${next.odo} km on ${next.date}, a later fill-up.`;
+  else if(prev&&e.odo-prev.odo>JUMP[e.veh])msg=`That is ${Math.round(e.odo-prev.odo)} km since the last fill-up on ${prev.date}.`;
+  else if(e.litres>(e.veh==='bike'?25:80))msg=`${e.litres} litres is more than a ${e.veh} tank usually holds.`;
+  return !msg||confirm(msg+'\nSave anyway?');
+}
+
 $('save').onclick=()=>{
   const date=$('date').value;if(!date)return toast('Pick a date');
+  let e;
   if(mode==='fuel'){
     const odo=num('odo'),l=num('ltr'),t=num('tot');
     if(!(odo>0&&l>0&&t>0))return toast('Enter odometer, litres and total');
-    data.push({id:Date.now(),type:'fuel',date,odo,litres:l,amount:t,full:$('full').checked});
-    ['odo','ltr','ppl','tot'].forEach(i=>$(i).value='');touched=[];
+    e={type:'fuel',veh:cur,date,odo,litres:l,amount:t,full:$('full').checked};
+    if(!odoOk(e))return;
   }else{
     const a=num('amt');if(!(a>0))return toast('Enter an amount');
-    data.push({id:Date.now(),type:'other',date,cat:$('cat').value,amount:a,note:$('note').value.trim()});
-    $('amt').value='';$('note').value='';
+    e={type:'other',veh:cur,date,cat:$('cat').value,amount:a,note:$('note').value.trim()};
   }
-  persist();toast('Entry saved');render();
+  const was=editing;
+  if(was){e.id=was;data[data.findIndex(x=>x.id===was)]=e}else{e.id=Date.now()+Math.floor(Math.random()*1000);data.push(e)}
+  persist();resetForm();toast(was?'Entry updated':'Entry saved');render();if(was)show('hist');
 };
 
-// tabs
-document.querySelectorAll('nav button').forEach(b=>b.onclick=()=>{
-  document.querySelectorAll('nav button').forEach(x=>x.classList.toggle('on',x===b));
-  ['add','hist','sum'].forEach(s=>$(s).hidden=s!==b.dataset.t);render();window.scrollTo(0,0)});
+function startEdit(id){
+  const e=data.find(x=>x.id==id);if(!e)return;
+  editing=e.id;setMode(e.type==='fuel'?'fuel':'other');$('date').value=e.date;
+  if(e.type==='fuel'){$('odo').value=e.odo;$('ltr').value=e.litres;$('tot').value=e.amount;
+    $('ppl').value=(e.amount/e.litres).toFixed(2);$('full').checked=!!e.full;touched=['ltr','tot']}
+  else{$('cat').value=e.cat;$('amt').value=e.amount;$('note').value=e.note||''}
+  $('save').textContent='Update entry';$('cancel').hidden=false;$('addH').textContent='Edit entry';show('add');
+}
+
+function show(t){
+  document.querySelectorAll('nav button').forEach(x=>x.classList.toggle('on',x.dataset.t===t));
+  ['add','hist','sum'].forEach(s=>$(s).hidden=s!==t);render();window.scrollTo(0,0)}
+document.querySelectorAll('nav button').forEach(b=>b.onclick=()=>show(b.dataset.t));
 
 function stats(){
-  const fuel=data.filter(e=>e.type==='fuel').sort((a,b)=>a.odo-b.odo);
-  const trips=[];let lastFull=null,litres=0,cost=0;
+  const fuel=data.filter(e=>e.type==='fuel'&&e.veh===cur).sort((a,b)=>a.odo-b.odo);
+  const trips=[];let lastFull=null,litres=0;
   fuel.forEach(e=>{
-    if(lastFull){litres+=e.litres;cost+=e.amount;
-      if(e.full){const d=e.odo-lastFull.odo;if(d>0&&litres>0)trips.push({date:e.date,km:d,kmpl:d/litres,cost});}}
-    if(e.full){lastFull=e;litres=0;cost=0}
+    if(lastFull){litres+=e.litres;
+      if(e.full){const d=e.odo-lastFull.odo;if(d>0&&litres>0)trips.push({date:e.date,km:d,kmpl:d/litres});}}
+    if(e.full){lastFull=e;litres=0}
   });
   return{fuel,trips};
+}
+const avgK=x=>x.reduce((s,t)=>s+t.km,0)/x.reduce((s,t)=>s+t.km/t.kmpl,0);
+
+function insights(tr){
+  if(!tr.length)return['Fill the tank to full on two visits to start seeing mileage.'];
+  const b=tr.reduce((a,x)=>x.kmpl>a.kmpl?x:a),w=tr.reduce((a,x)=>x.kmpl<a.kmpl?x:a);
+  const out=[`Best tank: ${b.kmpl.toFixed(1)} km/l (${b.date}). Lowest: ${w.kmpl.toFixed(1)} km/l (${w.date}).`];
+  if(tr.length>=6){
+    const ch=(avgK(tr.slice(-3))-avgK(tr.slice(0,-3)))/avgK(tr.slice(0,-3))*100;
+    out.push(Math.abs(ch)<5?'Mileage is steady compared with your earlier tanks.'
+      :ch<0?`Your last 3 tanks are ${Math.abs(ch).toFixed(0)}% below your earlier average.${ch<-10?' Check tyre pressure and consider a service.':''}`
+      :`Your last 3 tanks are ${ch.toFixed(0)}% better than your earlier average.`);
+  }else out.push('Trend insights appear after 6 full-tank intervals.');
+  return out;
+}
+
+function mileChart(tr){
+  if(tr.length<2)return'<p class="k">Mileage chart appears after two full-tank intervals.</p>';
+  const t=tr.slice(-12),v=t.map(x=>x.kmpl),mn=Math.min(...v),mx=Math.max(...v),pad=(mx-mn)||1,lo=mn-pad*.2,hi=mx+pad*.2;
+  const W=320,H=130,X=i=>10+i*(W-20)/(t.length-1),Y=y=>H-16-(y-lo)/(hi-lo)*(H-36);
+  return`<svg viewBox="0 0 ${W} ${H}" width="100%" role="img" aria-label="Mileage per tank in km per litre"><polyline class="ln" points="${t.map((x,i)=>X(i)+','+Y(x.kmpl)).join(' ')}"/>${t.map((x,i)=>`<circle class="dt" cx="${X(i)}" cy="${Y(x.kmpl)}" r="3.5"><title>${x.kmpl.toFixed(1)} km/l on ${x.date}</title></circle>`).join('')}<text class="mt" x="10" y="12">${mx.toFixed(1)} km/l best</text><text class="mt" x="10" y="${H-2}">${mn.toFixed(1)} lowest</text><text class="mt" x="${W-10}" y="${H-2}" text-anchor="end">last ${t.length} tanks</text></svg>`;
 }
 
 function render(){
@@ -168,49 +227,49 @@ function render(){
   $('bk').hidden=!need;
   if(need)$('bkMsg').textContent=b.t?`Last backup ${Math.floor(days)} days ago, ${Math.max(fresh,0)} new entries since.`:'You have not backed up yet.';
   $('lastBk').textContent=b.t?'Last backup: '+new Date(b.t).toLocaleDateString('en-IN'):'No backup yet.';
-  const sorted=[...data].sort((a,b)=>b.date.localeCompare(a.date)||b.id-a.id);
-  $('list').innerHTML=sorted.length?sorted.map(e=>e.type==='fuel'
-    ?`<div class="item"><div><b>Fuel · ${e.litres} L</b><span class="m">${e.date} · ${e.odo.toLocaleString('en-IN')} km${e.full?'':' · partial fill'}</span></div><div>${inr(e.amount)}<button data-d="${e.id}" aria-label="Delete entry">Delete</button></div></div>`
-    :`<div class="item"><div><b>${esc(e.cat)}</b><span class="m">${e.date}${e.note?' · '+esc(e.note):''}</span></div><div>${inr(e.amount)}<button data-d="${e.id}" aria-label="Delete entry">Delete</button></div></div>`).join('')
-    :'<div class="empty">No entries yet. Add your first fill-up on the Add tab.</div>';
-  $('list').querySelectorAll('[data-d]').forEach(b=>b.onclick=()=>{if(confirm('Delete this entry?')){data=data.filter(e=>e.id!=b.dataset.d);persist();render()}});
+
+  const mine=data.filter(e=>e.veh===cur).sort((a,b)=>b.date.localeCompare(a.date)||b.id-a.id);
+  $('list').innerHTML=mine.length?mine.map(e=>`<div class="item"><div><b>${e.type==='fuel'?'Fuel · '+e.litres+' L':esc(e.cat)}</b><span class="m">${e.date}${e.type==='fuel'?' · '+e.odo.toLocaleString('en-IN')+' km'+(e.full?'':' · partial fill'):(e.note?' · '+esc(e.note):'')}</span></div><div>${inr(e.amount)}<div class="act"><button class="ed" data-e="${e.id}">Edit</button><button data-d="${e.id}">Delete</button></div></div></div>`).join('')
+    :`<div class="empty">No ${cur} entries yet. Add one on the Add tab.</div>`;
+  $('list').querySelectorAll('[data-e]').forEach(x=>x.onclick=()=>startEdit(x.dataset.e));
+  $('list').querySelectorAll('[data-d]').forEach(x=>x.onclick=()=>{if(confirm('Delete this entry?')){data=data.filter(e=>e.id!=x.dataset.d);persist();render()}});
 
   const {fuel,trips}=stats();
-  const total=data.reduce((s,e)=>s+e.amount,0);
-  const fuelTotal=fuel.reduce((s,e)=>s+e.amount,0);
+  const total=mine.reduce((s,e)=>s+e.amount,0),fuelTotal=fuel.reduce((s,e)=>s+e.amount,0);
   const ym=today().slice(0,7);
-  const month=data.filter(e=>e.date.startsWith(ym)).reduce((s,e)=>s+e.amount,0);
-  const avg=trips.length?trips.reduce((s,t)=>s+t.km,0)/trips.reduce((s,t)=>s+t.km/t.kmpl,0):0;
+  const monthAll=mine.filter(e=>e.date.startsWith(ym)).reduce((s,e)=>s+e.amount,0);
+  const monthFuel=fuel.filter(e=>e.date.startsWith(ym)).reduce((s,e)=>s+e.amount,0);
   const last=trips.length?trips[trips.length-1]:null;
   const span=fuel.length>1?fuel[fuel.length-1].odo-fuel[0].odo:0;
   const perKm=span>0?(fuelTotal-fuel[0].amount)/span:0;
-  const cats={};data.forEach(e=>{const k=e.type==='fuel'?'Fuel':e.cat;cats[k]=(cats[k]||0)+e.amount});
+  const cats={};mine.forEach(e=>{const k=e.type==='fuel'?'Fuel':e.cat;cats[k]=(cats[k]||0)+e.amount});
   const months=[];for(let i=5;i>=0;i--){const d=new Date();d.setDate(1);d.setMonth(d.getMonth()-i);
     const k=new Date(d-d.getTimezoneOffset()*6e4).toISOString().slice(0,7);
-    months.push({k,l:d.toLocaleString('en',{month:'short'}),v:data.filter(e=>e.date.startsWith(k)).reduce((s,e)=>s+e.amount,0)})}
+    months.push({l:d.toLocaleString('en',{month:'short'}),v:fuel.filter(e=>e.date.startsWith(k)).reduce((s,e)=>s+e.amount,0)})}
   const mx=Math.max(1,...months.map(m=>m.v));
-  $('sumBody').innerHTML=!data.length?'<div class="card empty">Add a few entries to see mileage and spending.</div>':`
+  $('sumBody').innerHTML=!mine.length?`<div class="card empty">Add a few ${cur} entries to see mileage and spending.</div>`:`
   <div class="card"><div class="k">Average mileage</div>
-    <div class="big">${avg?avg.toFixed(1):'–'} <small>km/l</small></div>
-    <div class="k">${trips.length?`Last tank: ${last.kmpl.toFixed(1)} km/l over ${Math.round(last.km)} km`:'Needs two full-tank fills to calculate'}</div></div>
+    <div class="big">${trips.length?avgK(trips).toFixed(1):'–'} <small>km/l</small></div>
+    <div class="k">${last?`Last tank: ${last.kmpl.toFixed(1)} km/l over ${Math.round(last.km)} km`:'Needs two full-tank fills to calculate'}${span?` · ${Math.round(span).toLocaleString('en-IN')} km logged`:''}</div></div>
+  <div class="card"><b>Mileage per tank</b>${mileChart(trips)}</div>
+  <div class="card"><b>Insights</b><ul class="ins">${insights(trips).map(t=>`<li>${t}</li>`).join('')}</ul></div>
   <div class="grid">
-    <div class="card"><div class="k">This month</div><div class="v">${inr(month)}</div></div>
-    <div class="card"><div class="k">All time</div><div class="v">${inr(total)}</div></div>
+    <div class="card"><div class="k">Petrol this month</div><div class="v">${inr(monthFuel)}</div></div>
+    <div class="card"><div class="k">All spend this month</div><div class="v">${inr(monthAll)}</div></div>
     <div class="card"><div class="k">Fuel cost per km</div><div class="v">${perKm?'₹'+perKm.toFixed(2):'–'}</div></div>
-    <div class="card"><div class="k">Distance logged</div><div class="v">${span?Math.round(span).toLocaleString('en-IN')+' km':'–'}</div></div>
+    <div class="card"><div class="k">All spend, all time</div><div class="v">${inr(total)}</div></div>
   </div>
-  <div class="card" style="margin-top:14px"><b>Last 6 months</b>
-    <div class="bars">${months.map(m=>`<div><i style="height:${Math.round(m.v/mx*80)}px" title="${inr(m.v)}"></i>${m.l}</div>`).join('')}</div></div>
+  <div class="card" style="margin-top:14px"><b>Petrol spend by month</b>
+    <div class="bars">${months.map(m=>`<div><span>${m.v?(m.v>=1000?(m.v/1000).toFixed(1)+'k':Math.round(m.v)):''}</span><i style="height:${Math.round(m.v/mx*80)}px" title="${inr(m.v)}"></i>${m.l}</div>`).join('')}</div></div>
   <div class="card"><b>By category</b>${Object.entries(cats).sort((a,b)=>b[1]-a[1]).map(([k,v])=>`<div class="item"><span>${esc(k)}</span><b>${inr(v)}</b></div>`).join('')}</div>`;
 }
-function esc(s){return String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]))}
 
-// CSV export / import
-const COLS=['type','date','odometer','litres','amount','full','category','note'];
+// backup (all vehicles) and restore
+const COLS=['type','date','odometer','litres','amount','full','category','note','vehicle'];
 const q=v=>'"'+String(v??'').replace(/"/g,'""')+'"';
 $('exp').onclick=doBackup;$('bkBtn').onclick=doBackup;
 async function doBackup(){
-  const rows=[COLS.join(',')].concat(data.map(e=>[e.type,e.date,e.odo,e.litres,e.amount,e.full,e.cat,e.note].map(q).join(',')));
+  const rows=[COLS.join(',')].concat(data.map(e=>[e.type,e.date,e.odo,e.litres,e.amount,e.full,e.cat,e.note,e.veh].map(q).join(',')));
   const name='car-log-'+today()+'.csv';
   const file=new File([rows.join('\n')],name,{type:'text/csv'});
   try{
@@ -222,13 +281,20 @@ async function doBackup(){
 $('impB').onclick=()=>$('imp').click();
 $('imp').onchange=async ev=>{
   const f=ev.target.files[0];if(!f)return;
-  const rows=parseCSV(await f.text()).slice(1);let n=0;
-  rows.forEach((r,i)=>{if(r.length<5||!r[1])return;
-    const base={id:Date.now()+i,type:r[0]==='fuel'?'fuel':'other',date:r[1],amount:+r[4]||0};
-    if(base.type==='fuel')Object.assign(base,{odo:+r[2]||0,litres:+r[3]||0,full:r[5]==='true'});
-    else Object.assign(base,{cat:r[6]||'Other',note:r[7]||''});
-    data.push(base);n++});
-  persist();render();toast(n+' entries imported');ev.target.value='';
+  const rows=parseCSV(await f.text());
+  const h=(rows[0]||[]).map(x=>x.trim().toLowerCase().replace(/^\ufeff/,'')),ix=n=>h.indexOf(n);
+  if(rows.length<2||ix('type')<0||ix('date')<0||ix('amount')<0){toast('This is not a Car Log backup file');ev.target.value='';return}
+  const sig=e=>[e.type,e.veh,e.date,e.odo||'',e.litres||'',e.amount,e.cat||'',e.note||''].join('|');
+  const have=new Set(data.map(sig));let add=0,skip=0;
+  rows.slice(1).forEach(r=>{
+    const g=n=>ix(n)<0?'':(r[ix(n)]||'').trim();
+    if(!g('date'))return;
+    const e={id:Date.now()+Math.floor(Math.random()*1e6),type:g('type')==='fuel'?'fuel':'other',veh:g('vehicle')==='bike'?'bike':'car',date:g('date'),amount:+g('amount')||0};
+    if(e.type==='fuel')Object.assign(e,{odo:+g('odometer')||0,litres:+g('litres')||0,full:g('full')!=='false'});
+    else Object.assign(e,{cat:g('category')||'Other',note:g('note')});
+    const s=sig(e);if(have.has(s)){skip++;return}have.add(s);data.push(e);add++;
+  });
+  persist();render();toast(`${add} restored, ${skip} already in the app`);ev.target.value='';
 };
 function parseCSV(t){const out=[];let r=[],c='',inQ=false;
   for(let i=0;i<t.length;i++){const ch=t[i];
@@ -238,7 +304,8 @@ function parseCSV(t){const out=[];let r=[],c='',inQ=false;
     else if(ch==='\n'||ch==='\r'){if(ch==='\r'&&t[i+1]==='\n')i++;r.push(c);c='';out.push(r);r=[]}
     else c+=ch}
   if(c||r.length){r.push(c);out.push(r)}return out.filter(x=>x.length>1)}
-render();
+
+setVeh(cur);
 if('serviceWorker' in navigator){addEventListener('load',()=>navigator.serviceWorker.register('sw.js').catch(()=>{}))}
 </script>
 </body>

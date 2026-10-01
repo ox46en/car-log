@@ -1,5 +1,5 @@
 // Bump VERSION whenever you change any file, so phones pick up the update.
-const VERSION = 'carlog-v2';
+const VERSION = 'carlog-v3';
 const FILES = ['./', './index.html', './manifest.json', './icon-192.png', './icon-512.png', './icon-180.png'];
 self.addEventListener('install', e => {
   e.waitUntil(caches.open(VERSION).then(c => c.addAll(FILES)).then(() => self.skipWaiting()));
